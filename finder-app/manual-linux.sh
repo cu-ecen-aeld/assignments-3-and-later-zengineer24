@@ -66,7 +66,8 @@ mkdir -p home/conf
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
 then
-git clone git://busybox.net/busybox.git
+git clone https://github.com/mirror/busybox.git
+#git clone git://busybox.net/busybox.git
     cd busybox
     git checkout ${BUSYBOX_VERSION}
     # TODO:  Configure busybox
@@ -94,13 +95,13 @@ cp ${TOOLCHAIN_DIR}/libc/lib64/libc.so.6 ${OUTDIR}/rootfs/lib64
 
 # TODO: Make device nodes
 sudo mknod -m 666 dev/null c 1 3
-sudo chown root:root dev/null
+#sudo chown root:root dev/null
 
-sudo mknod -m 660 dev/ttyAMA0 c 204 64
-sudo chown root:tty dev/ttyAMA0
+#sudo mknod -m 660 dev/ttyAMA0 c 204 64
+#sudo chown root:tty dev/ttyAMA0
 
 sudo mknod -m 600 dev/console c 5 1
-sudo chown root:root dev/console 
+#sudo chown root:root dev/console 
 
 # TODO: Clean and build the writer utility
 cd ${FINDER_APP_DIR}
