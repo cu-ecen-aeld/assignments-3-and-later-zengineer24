@@ -11,7 +11,8 @@ KERNEL_VERSION=v5.15.163
 BUSYBOX_VERSION=1_33_1
 FINDER_APP_DIR=$(realpath $(dirname $0))
 ARCH=arm64
-CROSS_COMPILE=aarch64-none-linux-gnu-
+CROSS_COMPILE=aarch64-none-linux-gnu- 
+TOOLCHAIN_DIR=~/aarch64_gnu_toolchain/arm-gnu-toolchain-13.3.rel1-x86_64-aarch64-none-linux-gnu/aarch64-none-linux-gnu/
 
 if [ $# -lt 1 ]
 then
@@ -35,15 +36,16 @@ if [ ! -e ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ]; then
     git checkout ${KERNEL_VERSION}
 
     # TODO: Add your kernel build steps here
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}mrproper
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}defconfig
-    make -j6 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}all
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}modules
-    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}dtbs
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} mrproper
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} defconfig
+    make -j6 ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} all
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} modules
+    make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} dtbs
     
 fi
 
 echo "Adding the Image in outdir"
+cp ${OUTDIR}/linux-stable/arch/${ARCH}/boot/Image ${OUTDIR}
 
 echo "Creating the staging directory for the root filesystem"
 cd "$OUTDIR"
@@ -54,11 +56,12 @@ then
 fi
 
 # TODO: Create necessary base directories
+mkdir -p ${OUTDIR}/rootfs
 cd ${OUTDIR}/rootfs
 mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
-mkdir -p /usr/bin /usr/lib usr/sbin
+mkdir -p usr/bin usr/lib usr/sbin
 mkdir -p var/log
-
+mkdir -p home/conf
 
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
@@ -75,22 +78,29 @@ fi
 make distclean
 make defconfig
 make ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE}
-make CONFIG_PREFIX=${OUTDIR} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install    
-
+make CONFIG_PREFIX=${OUTDIR}/rootfs ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} install    
 
 echo "Library dependencies"
+cd ${OUTDIR}/rootfs
+
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "program interpreter"
 ${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library"
 
 # TODO: Add library dependencies to rootfs
-cp ${CROSS_COMPILE}/lib/ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib
-cp ${CROSS_COMPILE}/lib/libm.so.6 ${OUTDIR}/rootfs/lib64
-cp ${CROSS_COMPILE}/lib/libresolv.so.2 ${OUTDIR}/rootfs/lib64 
-cp ${CROSS_COMPILE}/lib/libc.so.6 ${OUTDIR}/rootfs/lib64
+cp ${TOOLCHAIN_DIR}/libc/lib/ld-linux-aarch64.so.1 ${OUTDIR}/rootfs/lib
+cp ${TOOLCHAIN_DIR}/libc/lib64/libm.so.6 ${OUTDIR}/rootfs/lib64
+cp ${TOOLCHAIN_DIR}/libc/lib64/libresolv.so.2 ${OUTDIR}/rootfs/lib64 
+cp ${TOOLCHAIN_DIR}/libc/lib64/libc.so.6 ${OUTDIR}/rootfs/lib64
 
 # TODO: Make device nodes
 sudo mknod -m 666 dev/null c 1 3
+sudo chown root:root dev/null
+
+sudo mknod -m 660 dev/ttyAMA0 c 204 64
+sudo chown root:tty dev/ttyAMA0
+
 sudo mknod -m 600 dev/console c 5 1
+sudo chown root:root dev/console 
 
 # TODO: Clean and build the writer utility
 cd ${FINDER_APP_DIR}
@@ -99,18 +109,24 @@ make CROSS_COMPILE=${CROSS_COMPILE}
 
 # TODO: Copy the finder related scripts and executables to the /home directory
 # on the target rootfs
+
 cp ${FINDER_APP_DIR}/writer ${OUTDIR}/rootfs/home
 cp ${FINDER_APP_DIR}/finder.sh ${OUTDIR}/rootfs/home
 cp ${FINDER_APP_DIR}/finder-test.sh ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_DIR}/conf/username.txt ${OUTDIR}/rootfs/home
-cp ${FINDER_APP_DIR}/conf/assignment.txt ${OUTDIR}/rootfs/home
+cp ${FINDER_APP_DIR}/conf/username.txt ${OUTDIR}/rootfs/home/conf
+cp ${FINDER_APP_DIR}/conf/assignment.txt ${OUTDIR}/rootfs/home/conf
 cp ${FINDER_APP_DIR}/autorun-qemu.sh ${OUTDIR}/rootfs/home
 
 # TODO: Chown the root directory
-cd ${OUTDIR}
+cd ${OUTDIR}/rootfs
 sudo chown -R root:root *
+echo "Owned as root"
 
 # TODO: Create initramfs.cpio.gz
 cd ${OUTDIR}/rootfs
 find . | cpio -H newc -ov --owner root:root > ${OUTDIR}/initramfs.cpio
+echo "Created initramfs"
+
+cd ${OUTDIR}
 gzip -f initramfs.cpio
+echo "Completed successfully"
