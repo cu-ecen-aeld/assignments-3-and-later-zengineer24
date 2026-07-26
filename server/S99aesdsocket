@@ -1,4 +1,6 @@
-#!/bin/sh
+#!/bin/bash
+
+echo "Parameter passed: '$1'"
 
 case "$1" in 
     start)
