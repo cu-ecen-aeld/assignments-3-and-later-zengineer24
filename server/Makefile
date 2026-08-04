@@ -1,7 +1,6 @@
 #Used source to help develop this file: https://makefiletutorial.com/
 
 CC = $(CROSS_COMPILE)gcc
-CFLAGS = -g
 #writer: writer.c
 #	cc writer.c -o writer
 
