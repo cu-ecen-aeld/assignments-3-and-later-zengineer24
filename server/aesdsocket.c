@@ -107,7 +107,7 @@ int main(int argc, char const *argv[])
     int acceptFd;
 
     //Listen
-    int listenResult = listen(socketDesc, 0);
+    int listenResult = listen(socketDesc, 10);
     if(listenResult == -1)
     {
         syslog(LOG_ERR, "Failed to listen on socket!");
