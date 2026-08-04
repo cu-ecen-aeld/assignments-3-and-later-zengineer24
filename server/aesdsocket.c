@@ -106,20 +106,20 @@ int main(int argc, char const *argv[])
     char dataArray[32768];
     int acceptFd;
 
-    //Listen
-    int listenResult = listen(socketDesc, 10);
-    if(listenResult == -1)
-    {
-        syslog(LOG_ERR, "Failed to listen on socket!");
-    }
-
     //Keep looping until signal is sent
     while(keepRunning)
     {
 
         struct sockaddr clientAddr;
         socklen_t sockLen = sizeof(struct sockaddr);
-        //Accept
+     //Listen
+    int listenResult = listen(socketDesc, 10);
+    if(listenResult == -1)
+    {
+        syslog(LOG_ERR, "Failed to listen on socket!");
+    }
+
+   //Accept
         acceptFd = accept(socketDesc, &clientAddr, &sockLen);
         if(acceptFd == -1)
         {
