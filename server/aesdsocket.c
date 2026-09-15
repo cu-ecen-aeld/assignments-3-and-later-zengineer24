@@ -37,7 +37,18 @@ typedef struct slist_data_s {
 
 //forward declaration of threads for use in main
 void* receiverThread(void* arg);
-void* timerThread(void* arg);
+void timerThread(union sigval sv);
+
+//helper function for timer
+static inline void timespec_add( struct timespec *result, const struct timespec *ts_1, const struct timespec *ts_2)
+{
+    result->tv_sec = ts_1->tv_sec + ts_2->tv_sec;
+    result->tv_nsec = ts_1->tv_nsec + ts_2->tv_nsec;
+    if( result->tv_nsec > 1000000000L ) {
+        result->tv_nsec -= 1000000000L;
+        result->tv_sec ++;
+    }
+}
 
 void terminateHandler(int signum)
 {
@@ -54,7 +65,18 @@ int main(int argc, char const *argv[])
     int acceptFd;
     pthread_mutex_t dataMutex;
     int optVal = 1;
+    //threadParams td;
+    struct sigevent sev;
+    timer_t timerid;
+    struct itimerspec itimerspec;
+    struct timespec start_time;
+    threadParams* td = malloc(sizeof(threadParams));
 
+    if (pthread_mutex_init(&dataMutex, NULL) != 0) 
+    {
+        return -1;
+    }
+    
     //setup thread linked list
     SLIST_HEAD(slisthead, slist_data_s) head;
     SLIST_INIT(&head);
@@ -130,35 +152,42 @@ int main(int argc, char const *argv[])
         return -1;
     }
     
-    //Declare entry for use with slist safe call
-    slist_data_t* tempVar = malloc(sizeof(slist_data_t));
-    
-    //Used to signal timer thread to start
+    //Configure parameters for timer
+    td->dataMutex = &dataMutex;
+    td->dataFd = dataFd;
+
+    int clock_id = CLOCK_MONOTONIC;
+    memset(&sev,0,sizeof(struct sigevent));
+    sev.sigev_notify = SIGEV_THREAD;
+    sev.sigev_value.sival_ptr = td;
+    sev.sigev_notify_function = timerThread;
+    if ( timer_create(clock_id,&sev,&timerid) != 0 ) 
+    {
+            return -1;
+    } 
+     if ( clock_gettime(clock_id,&start_time) != 0 ) 
+     {
+        return -1;
+    } 
+    else 
+    {
+            memset(&itimerspec, 0, sizeof(struct itimerspec));
+            itimerspec.it_interval.tv_sec = 10;
+            itimerspec.it_interval.tv_nsec = 0 * 1000000;
+            itimerspec.it_value.tv_sec = 2;
+            itimerspec.it_value.tv_nsec = 0;
+            timespec_add(&itimerspec.it_value,&start_time,&itimerspec.it_interval);
+    }
+
     bool first = true;
     //Keep looping until signal is sent
     while(keepRunning == 1)
     {
-        if(first)
-        {
-            //setup args for timer thread and kick off thread
-            //add entry to thread queue and set first = false so we stop making threads.
-            threadParams* generalParams = malloc(sizeof(threadParams));
-            generalParams->dataFd = dataFd;
-            generalParams->dataMutex = &dataMutex;
-            generalParams->keepRunning = &keepRunning;
-            connQueue = malloc(sizeof(slist_data_t));
-            // //connQueue->thread = malloc(sizeof(pthread_t));
-            connQueue = malloc(sizeof(slist_data_t));
-            pthread_create(&connQueue->thread, NULL, timerThread, generalParams);
-            SLIST_INSERT_HEAD(&head, connQueue, entries);
-            first = false;
-        }
-        
         struct sockaddr clientAddr;
         socklen_t sockLen = sizeof(struct sockaddr);
         
         //Listen
-        int listenResult = listen(socketDesc, 10);
+        int listenResult = listen(socketDesc, 30);
         if(listenResult == -1)
         {
             syslog(LOG_ERR, "Failed to listen on socket!");
@@ -190,6 +219,19 @@ int main(int argc, char const *argv[])
         pthread_create(&connQueue->thread, NULL, receiverThread, generalParams);
         SLIST_INSERT_HEAD(&head, connQueue, entries);
 
+        //Start timer
+        if(first)
+        {
+            if( timer_settime(timerid, TIMER_ABSTIME, &itimerspec, NULL ) != 0 ) 
+            {
+                syslog(LOG_ERR, "Failed to set timer.");
+            }
+            first = false;
+        }
+
+        //Allocate entry for use with slist safe call
+        slist_data_t* tempVar;
+
         //Iterate through all queue entries and check if threads can be joined.
         //Free malloced memory if joined
         SLIST_FOREACH_SAFE(connQueue, &head, entries, tempVar)
@@ -203,22 +245,22 @@ int main(int argc, char const *argv[])
         }
     }   
 
-    //cleanup on program termination
-    SLIST_FOREACH_SAFE(connQueue, &head, entries, tempVar)
+    //Allocate entry for use with slist safe call
+    while(!SLIST_EMPTY(&head))
     {
-        int retvalue = pthread_tryjoin_np(connQueue->thread, NULL);
-        if(retvalue == 0)
-        {
-            SLIST_REMOVE(&head, connQueue, slist_data_s, entries);
-            free(connQueue);
-        }
+        connQueue = SLIST_FIRST(&head);
+        SLIST_REMOVE_HEAD(&head, entries);
+        int retvalue = pthread_join(connQueue->thread, NULL);
+        free(connQueue);
     }
+    
     syslog(LOG_DEBUG, "Caught signal, exiting");
     close(socketDesc);
     close(dataFd);
     remove("/var/tmp/aesdsocketdata");
     closelog();
-    free(tempVar);
+    timer_delete(timerid);
+    free(td);
     return 0;
 }
 
@@ -228,6 +270,7 @@ void* receiverThread(void* arg)
     threadParams* params = ((threadParams*)arg);
     //declare data buffer
     char dataArray[32768];
+    int readReturn;
     uint32_t dataSize = (sizeof(dataArray)/sizeof(dataArray[0]));
     memset(dataArray, '0', dataSize);
     int recvReturn = recv(params->acceptFd, dataArray, dataSize, 0);
@@ -242,7 +285,7 @@ void* receiverThread(void* arg)
     }
 
     //add mutex
-    int mutexResult = pthread_mutex_trylock(params->dataMutex);
+    int mutexResult = pthread_mutex_lock(params->dataMutex);
     if ( mutexResult != 0 ) 
     {
         syslog(LOG_ERR, "pthread_mutex_lock failed\n");
@@ -257,23 +300,23 @@ void* receiverThread(void* arg)
 
         lseek(params->dataFd, 0, SEEK_SET);
         memset(dataArray, '0', sizeof(dataArray));
-        int readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
+        readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
         if(readReturn == -1)
         {
             syslog(LOG_ERR, "Failed to read file!");
         }
-
-        int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
-        if(sendReturn == -1)
-        {
-            syslog(LOG_ERR, "Failed to send data back to client!");
-        }
     }
-    //release mutex
+        //release mutex
     mutexResult = pthread_mutex_unlock(params->dataMutex);
     if(mutexResult != 0)
     {
         syslog(LOG_ERR, "pthread_mutex_unlock failed\n");
+    }
+
+    int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+    if(sendReturn == -1)
+    {
+        syslog(LOG_ERR, "Failed to send data back to client!");
     }
 
     //TODO: Close connection etc.
@@ -283,29 +326,30 @@ void* receiverThread(void* arg)
     return 0;
 }
 
-void* timerThread(void* arg)
+void timerThread(union sigval sv)
 {
-    threadParams *params=(threadParams*)arg;
-    time_t timeNs;
+    threadParams *params=(threadParams*)sv.sival_ptr;
+    time_t timeNs = 0;
 
-    syslog(LOG_DEBUG, "Starting timer thread.");
-    while(*params->keepRunning == 1)
+    char timeString[64] = "timestamp:"; 
+    struct tm timeData;
+    if(localtime_r(&timeNs, &timeData) != NULL)
     {
-        sleep(10);
-        int mutexResult = pthread_mutex_trylock(params->dataMutex);
+        int stringSize = strftime(timeString + 10, sizeof(timeString) - 10, "%a %b %d %H:%M:%S %Y\n\n", &timeData);
+        int mutexResult = pthread_mutex_lock(params->dataMutex);
         if ( mutexResult != 0 ) 
         {
             syslog(LOG_ERR, "pthread_mutex_lock failed with %d\n", mutexResult);
         } else 
         {
-            char timeString[] = "timestamp:"; 
-            char* timePtr = strcat(timeString, asctime(localtime(&timeNs)));
             lseek(params->dataFd, 0, SEEK_END);
-            int writeReturn = write(params->dataFd, timePtr, strlen(timeString));
+
+            //+10 is for timestamp: text
+            int writeReturn = write(params->dataFd, timeString, stringSize+10);
             if(writeReturn == -1)
             {
                 syslog(LOG_ERR, "Failed to write data to file!");
-         }
+            }
         }
         mutexResult = pthread_mutex_unlock(params->dataMutex);
         if(mutexResult != 0)
@@ -313,6 +357,4 @@ void* timerThread(void* arg)
             syslog(LOG_ERR, "pthread_mutex_unlock failed with %d\n", mutexResult);
         }
     }
-    free(params);
-    return 0;
 }
