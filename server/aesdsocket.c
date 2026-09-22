@@ -174,7 +174,7 @@ int main(int argc, char const *argv[])
             memset(&itimerspec, 0, sizeof(struct itimerspec));
             itimerspec.it_interval.tv_sec = 10;
             itimerspec.it_interval.tv_nsec = 0 * 1000000;
-            itimerspec.it_value.tv_sec = 0;
+            itimerspec.it_value.tv_sec = 10;
             itimerspec.it_value.tv_nsec = 0;
             timespec_add(&itimerspec.it_value,&start_time,&itimerspec.it_interval);
     }
@@ -335,7 +335,7 @@ void timerThread(union sigval sv)
     struct tm timeData;
     if(localtime_r(&timeNs, &timeData) != NULL)
     {
-        int stringSize = strftime(timeString + 10, sizeof(timeString) - 10, "%a %b %d %H:%M:%S %Y\n\n", &timeData);
+        int stringSize = strftime(timeString + 10, sizeof(timeString) - 10, "%a %b %d %H:%M:%S %Y\n", &timeData);
         int mutexResult = pthread_mutex_lock(params->dataMutex);
         if ( mutexResult != 0 ) 
         {
