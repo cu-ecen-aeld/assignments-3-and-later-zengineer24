@@ -10,6 +10,8 @@
 
 #define AESD_DEBUG 1  //Remove comment on this line to enable debug
 
+#include <aesd-circular-buffer.h>
+
 #undef PDEBUG             /* undef it, just in case */
 #ifdef AESD_DEBUG
 #  ifdef __KERNEL__
@@ -28,6 +30,8 @@ struct aesd_dev
     /**
      * TODO: Add structure(s) and locks needed to complete assignment requirements
      */
+    struct aesd_circular_buffer* devBuffer;
+    struct aesd_buffer_entry* partialCmd;
     struct cdev cdev;     /* Char device structure      */
 };
 

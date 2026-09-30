@@ -32,7 +32,34 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     /**
     * TODO: implement per description
     */
-    return NULL;
+   int byteIndex = 0;
+   int entryIndex = buffer->out_offs;
+   int bufferOffset = 0;
+   if(buffer->full)
+   {
+        bufferOffset = buffer->in_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+   }
+   else
+   {
+        bufferOffset = buffer->in_offs;
+   }
+   while(entryIndex < bufferOffset)
+   {
+        if(byteIndex + buffer->entry[(entryIndex % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)].size > char_offset)
+        {
+            size_t byteOffset = (char_offset - byteIndex);
+            *entry_offset_byte_rtn = (byteOffset);
+            return &(buffer->entry[(entryIndex % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)]);
+        }
+        else
+        {
+            byteIndex += buffer->entry[(entryIndex % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)].size;
+            entryIndex++;
+        }
+   }
+   *entry_offset_byte_rtn = 0;
+   struct aesd_buffer_entry* bufferPtr = NULL;
+    return bufferPtr;
 }
 
 /**
@@ -47,6 +74,21 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     /**
     * TODO: implement per description
     */
+   if(buffer->in_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        buffer->in_offs = 0;
+        buffer->full = true;
+    }
+
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size = add_entry->size;
+    buffer->in_offs++;
+
+    if(buffer->full)
+    {
+        kfree(buffer->entry[buffer->out_offs]);
+        buffer->out_offs++;
+    }
 }
 
 /**
@@ -55,4 +97,16 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
 void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 {
     memset(buffer,0,sizeof(struct aesd_circular_buffer));
+}
+
+/**
+* Frees memory used by the circular buffer described by @param buffer
+*/
+void aesd_circular_buffer_clean(struct aesd_circular_buffer *buffer)
+{
+    buffer->in_offs = 0;
+    while(buffer->in_offs < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        kfree(buffer->entry[buffer->in_offs]);
+    }
 }
