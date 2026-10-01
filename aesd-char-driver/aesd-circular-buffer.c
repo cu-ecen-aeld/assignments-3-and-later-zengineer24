@@ -10,6 +10,8 @@
 
 #ifdef __KERNEL__
 #include <linux/string.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
 #else
 #include <string.h>
 #endif
@@ -86,7 +88,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
 
     if(buffer->full)
     {
-        kfree(buffer->entry[buffer->out_offs]);
+        kfree(buffer->entry[buffer->out_offs].buffptr);
         buffer->out_offs++;
     }
 }
@@ -102,11 +104,11 @@ void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 /**
 * Frees memory used by the circular buffer described by @param buffer
 */
-void aesd_circular_buffer_clean(struct aesd_circular_buffer *buffer)
-{
-    buffer->in_offs = 0;
-    while(buffer->in_offs < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
-    {
-        kfree(buffer->entry[buffer->in_offs]);
-    }
-}
+// void aesd_circular_buffer_clean(struct aesd_circular_buffer *buffer)
+// {
+//     buffer->in_offs = 0;
+//     while(buffer->in_offs < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+//     {
+//         kfree(buffer->entry[buffer->in_offs]);
+//     }
+// }

@@ -18,12 +18,20 @@
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
 #include "aesdchar.h"
+#include "aesd-circular-buffer.h"
 
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
 MODULE_AUTHOR("Zachary W");
 MODULE_LICENSE("Dual BSD/GPL");
+
+int aesd_open(struct inode *inode, struct file *filp);
+int aesd_release(struct inode *inode, struct file *filp);
+ssize_t aesd_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
+ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+int aesd_init_module(void);
+void aesd_cleanup_module(void);
 
 struct aesd_dev aesd_device;
 
@@ -33,7 +41,7 @@ int aesd_open(struct inode *inode, struct file *filp)
     /**
      * TODO: handle open
      */
-    filp->private_data = containerof(inode->i_cdev);;
+    filp->private_data = container_of(inode->i_cdev, struct aesd_dev, cdev);
 
 ;    return 0;
 }
@@ -44,7 +52,7 @@ int aesd_release(struct inode *inode, struct file *filp)
     /**
      * TODO: handle release
      */
-    
+
     return 0;
 }
 
@@ -56,10 +64,10 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     /**
     * TODO: handle read
     */
-    size_t* byteOffset;
-    struct aesd_buffer_entry readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(&aesd_device.devBuffer, *f_pos, byteOffset);
-    copy_to_user(readBuffer.buffptr, buf, readBuffer.size);
-    retval = readBuffer.size;
+    size_t* byteOffset = NULL;
+    struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, byteOffset);
+    copy_to_user((void*)(readBuffer->buffptr), buf, readBuffer->size);
+    retval = readBuffer->size;
     *f_pos += retval; 
     return retval;
 }
@@ -91,21 +99,24 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     if(inputBuffer[count-1] != '\n')
     {
         //store in another buffer until \n received
-        aesd_device.partialCmd.buffptr[aesd_device.partialCmd.size] = inputBuffer;
-        aesd_device.partialCmd.size += count;   
+        char* tmpPtr = aesd_device.partialCmd->buffptr;
+        aesd_device.partialCmd->buffptr = kmalloc(aesd_device.partialCmd->size + count, GFP_KERNEL);
+        memcpy(aesd_device.partialCmd->buffptr, tmpPtr, aesd_device.partialCmd->size);
+        memcpy(aesd_device.partialCmd->buffptr + aesd_device.partialCmd->size, inputBuffer, count);
+        aesd_device.partialCmd->size += count;
+        kfree(tmpPtr);
     }
     else
     {
-        aesd_device.partialCmd.buffptr = inputBuffer;
-        aesd_device.partialCmd.size = count;
+        aesd_device.partialCmd->buffptr = inputBuffer;
+        aesd_device.partialCmd->size = count;
     }
 
     //Write to circ buffer
-    struct aesd_buffer_entry newEntry = aesd_device.partialCmd;
-    aesd_circular_buffer_add_entry( &aesd_device.devBuffer, &newEntry);
+    aesd_circular_buffer_add_entry(aesd_device.devBuffer, aesd_device.partialCmd);
 
     //reset partialCmd size for next cmd once sucessfully written
-    aesd_device.partialCmd.size = 0;
+    aesd_device.partialCmd->size = 0;
     retval = 0;
     return retval;
 
@@ -152,7 +163,7 @@ int aesd_init_module(void)
     /**
      * TODO: initialize the AESD specific portion of the device
      */
-    aesd_circular_buffer_init(&aesd_device.devBuffer);
+    aesd_circular_buffer_init(aesd_device.devBuffer);
 
     result = aesd_setup_cdev(&aesd_device);
 
@@ -172,8 +183,13 @@ void aesd_cleanup_module(void)
     /**
      * TODO: cleanup AESD specific poritions here as necessary
      */
-    aesd_circular_buffer_clean(&aesd_device.devBuffer);
-
+    //aesd_circular_buffer_clean(&aesd_device.devBuffer);
+    struct aesd_buffer_entry* entryPtr;
+    int index = 0;
+    AESD_CIRCULAR_BUFFER_FOREACH(entryPtr,aesd_device.devBuffer,index)
+    {
+        kfree(entryPtr->buffptr);
+    }
     unregister_chrdev_region(devno, 1);
 }
 

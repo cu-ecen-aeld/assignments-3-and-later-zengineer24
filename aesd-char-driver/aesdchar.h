@@ -10,8 +10,6 @@
 
 #define AESD_DEBUG 1  //Remove comment on this line to enable debug
 
-#include <aesd-circular-buffer.h>
-
 #undef PDEBUG             /* undef it, just in case */
 #ifdef AESD_DEBUG
 #  ifdef __KERNEL__
