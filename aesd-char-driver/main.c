@@ -64,9 +64,14 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     /**
     * TODO: handle read
     */
-    size_t* byteOffset = NULL;
-    struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, byteOffset);
-    copy_to_user((void*)(readBuffer->buffptr), buf, readBuffer->size);
+    size_t byteOffset;
+    struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, &byteOffset);
+    int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
+    if(unread != 0)
+    {
+        PDEBUG("Failed to copy all bytes to userspace!\n");
+    }
+    
     retval = readBuffer->size;
     *f_pos += retval; 
     return retval;
@@ -108,26 +113,40 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         memcpy(aesd_device.partialCmd->buffptr, tmpPtr, aesd_device.partialCmd->size);
         memcpy(aesd_device.partialCmd->buffptr + aesd_device.partialCmd->size, inputBuffer, count);
         aesd_device.partialCmd->size += count;
-        //kfree(tmpPtr);
+        kfree(tmpPtr);
         PDEBUG("Received partial entry\n");
 
     }
     else
     {
-        PDEBUG("Entering full entry\n");
-        aesd_device.partialCmd->buffptr = inputBuffer;
-        aesd_device.partialCmd->size = count;
-        PDEBUG("Received complete entry\n");
+        if(aesd_device.partialCmd->size != 0)
+        {
+            PDEBUG("Entering partial entry\n");
+            //store in another buffer until \n received
+            char* tmpPtr = aesd_device.partialCmd->buffptr;
+            aesd_device.partialCmd->buffptr = kmalloc(aesd_device.partialCmd->size + count, GFP_KERNEL);
+            memcpy(aesd_device.partialCmd->buffptr, tmpPtr, aesd_device.partialCmd->size);
+            memcpy(aesd_device.partialCmd->buffptr + aesd_device.partialCmd->size, inputBuffer, count);
+            aesd_device.partialCmd->size += count;
+            kfree(tmpPtr);
+            PDEBUG("Received partial entry\n");
+        }
+        else
+        {
+            PDEBUG("Entering full entry\n");
+            aesd_device.partialCmd->buffptr = inputBuffer;
+            aesd_device.partialCmd->size = count;
+            *f_pos += (count);// * sizeof(char));
+            PDEBUG("Received complete entry\n");
+        }
+
+        //Write to circ buffer
+        aesd_circular_buffer_add_entry(aesd_device.devBuffer, aesd_device.partialCmd);
+        retval = aesd_device.partialCmd->size;
+        //reset partialCmd size for next cmd once sucessfully written
+        aesd_device.partialCmd->size = 0;
+        PDEBUG("Wrote to circular buffer\n");
     }
-
-    //Write to circ buffer
-    aesd_circular_buffer_add_entry(aesd_device.devBuffer, aesd_device.partialCmd);
-
-    //reset partialCmd size for next cmd once sucessfully written
-    aesd_device.partialCmd->size = 0;
-    retval = 0;
-    return retval;
-
 
     return retval;
 }
@@ -211,7 +230,7 @@ void aesd_cleanup_module(void)
         kfree(entryPtr->buffptr);
     }
     kfree(aesd_device.devBuffer);
-
+    kfree(aesd_device.partialCmd);
     unregister_chrdev_region(devno, 1);
 }
 

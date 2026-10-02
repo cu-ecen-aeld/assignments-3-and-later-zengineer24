@@ -81,14 +81,17 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
         buffer->in_offs = 0;
         buffer->full = true;
     }
-
+    if(buffer->out_offs >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        buffer->out_offs = 0;
+    }
     buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
     buffer->entry[buffer->in_offs].size = add_entry->size;
     buffer->in_offs++;
 
     if(buffer->full)
     {
-        kfree(buffer->entry[buffer->out_offs].buffptr);
+        kfree(buffer->entry[(buffer->out_offs)].buffptr);
         buffer->out_offs++;
     }
 }
