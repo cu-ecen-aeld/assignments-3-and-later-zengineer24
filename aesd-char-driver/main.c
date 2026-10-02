@@ -163,10 +163,12 @@ int aesd_init_module(void)
     /**
      * TODO: initialize the AESD specific portion of the device
      */
+    //printk(KERN_INFO "Made it to aesd portion.\n");
+    aesd_device.devBuffer = kmalloc(sizeof(struct aesd_circular_buffer), GFP_KERNEL);
     aesd_circular_buffer_init(aesd_device.devBuffer);
-
+    //printk(KERN_INFO "Setting up aesd cdev\n");
     result = aesd_setup_cdev(&aesd_device);
-
+    
     if( result ) {
         unregister_chrdev_region(dev, 1);
     }
@@ -190,6 +192,8 @@ void aesd_cleanup_module(void)
     {
         kfree(entryPtr->buffptr);
     }
+    kfree(aesd_device.devBuffer);
+
     unregister_chrdev_region(devno, 1);
 }
 
