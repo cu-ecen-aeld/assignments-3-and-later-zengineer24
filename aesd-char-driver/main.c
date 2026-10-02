@@ -85,31 +85,39 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     char* inputBuffer = kmalloc(count, GFP_KERNEL);
     if(inputBuffer == NULL)
     {
+        PDEBUG("Unable to allocate mem!\n");
         //Fail and return here
         retval = -ENOMEM;
     }
     int notCopied = copy_from_user(inputBuffer, buf, count);
     if(notCopied != 0)
     {
+        PDEBUG("Not copied!\n");
         //Fail and return here
         retval = -ENOMEM;
         kfree(inputBuffer);
     }
+    PDEBUG("Checking data\n");
     //if count-1 (last data index) is \n then we can add to circ buffer if not, store until (maybe in another circ buffer?) \n received
     if(inputBuffer[count-1] != '\n')
     {
+        PDEBUG("Entering partial entry\n");
         //store in another buffer until \n received
         char* tmpPtr = aesd_device.partialCmd->buffptr;
         aesd_device.partialCmd->buffptr = kmalloc(aesd_device.partialCmd->size + count, GFP_KERNEL);
         memcpy(aesd_device.partialCmd->buffptr, tmpPtr, aesd_device.partialCmd->size);
         memcpy(aesd_device.partialCmd->buffptr + aesd_device.partialCmd->size, inputBuffer, count);
         aesd_device.partialCmd->size += count;
-        kfree(tmpPtr);
+        //kfree(tmpPtr);
+        PDEBUG("Received partial entry\n");
+
     }
     else
     {
+        PDEBUG("Entering full entry\n");
         aesd_device.partialCmd->buffptr = inputBuffer;
         aesd_device.partialCmd->size = count;
+        PDEBUG("Received complete entry\n");
     }
 
     //Write to circ buffer
@@ -165,7 +173,17 @@ int aesd_init_module(void)
      */
     //printk(KERN_INFO "Made it to aesd portion.\n");
     aesd_device.devBuffer = kmalloc(sizeof(struct aesd_circular_buffer), GFP_KERNEL);
+    if(aesd_device.devBuffer == NULL)
+    {
+        PDEBUG("Failed to allocate mem for dev buffer!\n");
+    }
     aesd_circular_buffer_init(aesd_device.devBuffer);
+    
+    aesd_device.partialCmd = kmalloc(sizeof(struct aesd_buffer_entry), GFP_KERNEL);
+    if(aesd_device.partialCmd == NULL)
+    {
+        PDEBUG("Faield to allocate mem for partial cmd buffer entry!\n");
+    }
     //printk(KERN_INFO "Setting up aesd cdev\n");
     result = aesd_setup_cdev(&aesd_device);
     
