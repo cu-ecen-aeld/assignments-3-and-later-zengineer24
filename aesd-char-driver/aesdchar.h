@@ -30,6 +30,7 @@ struct aesd_dev
      */
     struct aesd_circular_buffer* devBuffer;
     struct aesd_buffer_entry* partialCmd;
+    struct mutex writeLock;
     struct cdev cdev;     /* Char device structure      */
 };
 

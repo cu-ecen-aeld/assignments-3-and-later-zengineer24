@@ -12,6 +12,7 @@
 #include <linux/string.h>
 #include <linux/kernel.h>
 #include <linux/slab.h>
+#include <linux/printk.h>
 #else
 #include <string.h>
 #endif
@@ -39,7 +40,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
    int bufferOffset = 0;
    if(buffer->full)
    {
-        bufferOffset = buffer->in_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
+        bufferOffset = buffer->in_offs % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
    }
    else
    {
@@ -51,6 +52,10 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
         {
             size_t byteOffset = (char_offset - byteIndex);
             *entry_offset_byte_rtn = (byteOffset);
+            for(int i = 0; i <=  buffer->entry[entryIndex%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED].size; i++)
+            {
+                printk(KERN_INFO "%c\n", buffer->entry[entryIndex%AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED].buffptr[i]);
+            }
             return &(buffer->entry[(entryIndex % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)]);
         }
         else
@@ -85,15 +90,19 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
     {
         buffer->out_offs = 0;
     }
-    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
-    buffer->entry[buffer->in_offs].size = add_entry->size;
-    buffer->in_offs++;
 
     if(buffer->full)
     {
         kfree(buffer->entry[(buffer->out_offs)].buffptr);
         buffer->out_offs++;
     }
+    buffer->entry[buffer->in_offs].buffptr = add_entry->buffptr;
+    buffer->entry[buffer->in_offs].size = add_entry->size;
+    for(int i = 0; i <=  buffer->entry[buffer->in_offs].size; i++)
+{
+    printk(KERN_INFO "%c\n", buffer->entry[buffer->in_offs].buffptr[i]);
+}
+    buffer->in_offs++;
 }
 
 /**
@@ -102,6 +111,8 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
 void aesd_circular_buffer_init(struct aesd_circular_buffer *buffer)
 {
     memset(buffer,0,sizeof(struct aesd_circular_buffer));
+    buffer->out_offs = 0;
+    buffer->in_offs = 0;
 }
 
 /**

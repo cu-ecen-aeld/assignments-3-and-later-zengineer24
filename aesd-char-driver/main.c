@@ -66,6 +66,11 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     */
     size_t byteOffset;
     struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, &byteOffset);
+    if(readBuffer == NULL)
+    {
+        retval = 0;
+        return retval;
+    }
     int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
     if(unread != 0)
     {
@@ -141,7 +146,9 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         }
 
         //Write to circ buffer
+        down_interruptible(&aesd_device.writeLock);
         aesd_circular_buffer_add_entry(aesd_device.devBuffer, aesd_device.partialCmd);
+        up(&aesd_device.writeLock);
         retval = aesd_device.partialCmd->size;
         //reset partialCmd size for next cmd once sucessfully written
         aesd_device.partialCmd->size = 0;
@@ -206,6 +213,8 @@ int aesd_init_module(void)
     //printk(KERN_INFO "Setting up aesd cdev\n");
     result = aesd_setup_cdev(&aesd_device);
     
+    mutex_init(&aesd_device.writeLock);
+
     if( result ) {
         unregister_chrdev_region(dev, 1);
     }
