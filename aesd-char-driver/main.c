@@ -65,22 +65,71 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
     /**
     * TODO: handle read
     */
+       ssize_t retval = 0;
+    PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
+    /**
+    * TODO: handle read
+    */
     size_t byteOffset;
-    struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, &byteOffset);
-    if(readBuffer == NULL)
+    if(down_interruptible(&aesd_device.writeLock) == 0)
     {
-        retval = 0;
+
+        struct aesd_buffer_entry* readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, &byteOffset);
+        if(readBuffer == NULL)
+        {
+            up(&aesd_device.writeLock);
+            retval = 0;
+            return retval;
+        }
+
+    }
+        int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
+        if(unread != 0)
+        {
+            PDEBUG("Failed to copy all bytes to userspace!\n");
+        }
+        
+        retval = readBuffer->size;
+        *f_pos += retval; 
+        up(&aesd_device.writeLock);
         return retval;
-    }
-    int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
-    if(unread != 0)
-    {
-        PDEBUG("Failed to copy all bytes to userspace!\n");
-    }
+
+//        size_t byteOffset;
+//     int result = down_interruptible(&aesd_device.writeLock);
+//     struct aesd_buffer_entry* readBuffer;
+//     if(result == 0)
+//     {
+
+//     readBuffer =  aesd_circular_buffer_find_entry_offset_for_fpos(aesd_device.devBuffer, *f_pos, &byteOffset);
+   
+//     if(readBuffer == NULL)
+//         {
+//                     up(&aesd_device.writeLock); 
+//             retval = 0;
+//             return retval;
+//         }
+
+//     }
+//     // 3. Calculate actual bytes available in this entry from entry_offset_byte
+//     int bytes_to_copy = readBuffer->size - byteOffset;
+//     if (bytes_to_copy > count) {
+//         bytes_to_copy = count;
+//     }
+
+//     // 4. Perform the copy while holding lock or ensuring buffer stability
+//     int uncopied_bytes = copy_to_user(buf, 
+//                                   readBuffer->buffptr + byteOffset, 
+//                                   bytes_to_copy);
+//                                   up(&aesd_device.writeLock); 
+//     // int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
+//     // if(unread != 0)
+//     // {
+//     //     PDEBUG("Failed to copy all bytes to userspace!\n");
+//     // }
+// retval = bytes_to_copy - uncopied_bytes;
+//     *f_pos += retval;
     
-    retval = readBuffer->size;
-    *f_pos += retval; 
-    return retval;
+    //return retval;
 }
 
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,

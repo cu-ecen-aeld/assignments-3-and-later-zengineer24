@@ -37,7 +37,10 @@ typedef struct slist_data_s {
 
 //forward declaration of threads for use in main
 void* receiverThread(void* arg);
+
+#ifndef USE_AESD_CHAR_DEVICE
 void timerThread(union sigval sv);
+#endif
 
 //helper function for timer
 static inline void timespec_add( struct timespec *result, const struct timespec *ts_1, const struct timespec *ts_2)
@@ -72,11 +75,12 @@ int main(int argc, char const *argv[])
     struct timespec start_time;
     threadParams* td = malloc(sizeof(threadParams));
 
+    #ifndef USE_AESD_CHAR_DEVICE
     if (pthread_mutex_init(&dataMutex, NULL) != 0) 
     {
         return -1;
     }
-    
+    #endif
     //setup thread linked list
     SLIST_HEAD(slisthead, slist_data_s) head;
     SLIST_INIT(&head);
@@ -144,6 +148,8 @@ int main(int argc, char const *argv[])
 
     //open user log to use with syslog for error reporting
     openlog(NULL, 0, LOG_USER);
+
+    #ifndef USE_AESD_CHAR_DEVICE
     //open file to write data
     int dataFd = open("/var/tmp/aesdsocketdata", O_RDWR | O_CREAT, 0644);
     if(dataFd == -1)
@@ -151,10 +157,13 @@ int main(int argc, char const *argv[])
         syslog(LOG_ERR, "Unable to open file /var/tmp/aesdsocketdata for writing");
         return -1;
     }
-    
+    #endif
+ 
+    #ifndef USE_AESD_CHAR_DEVICE
     //Configure parameters for timer
     td->dataMutex = &dataMutex;
-    td->dataFd = dataFd;
+        td->dataFd = dataFd;
+
 
     int clock_id = CLOCK_MONOTONIC;
     memset(&sev,0,sizeof(struct sigevent));
@@ -178,7 +187,7 @@ int main(int argc, char const *argv[])
             itimerspec.it_value.tv_nsec = 0;
             timespec_add(&itimerspec.it_value,&start_time,&itimerspec.it_interval);
     }
-
+    #endif
     bool first = true;
     //Keep looping until signal is sent
     while(keepRunning == 1)
@@ -212,13 +221,16 @@ int main(int argc, char const *argv[])
         generalParams->acceptFd = acceptFd;
         generalParams->clientOctet = clientOctet;
         generalParams->octetSize = INET_ADDRSTRLEN;
+        #ifndef USE_AESD_CHAR_DEVICE
         generalParams->dataFd = dataFd;
         generalParams->dataMutex = &dataMutex;
-        
+        #endif
+
         connQueue = malloc(sizeof(slist_data_t));
         pthread_create(&connQueue->thread, NULL, receiverThread, generalParams);
         SLIST_INSERT_HEAD(&head, connQueue, entries);
-
+	
+	#ifndef USE_AESD_CHAR_DEVICE
         //Start timer
         if(first)
         {
@@ -228,6 +240,7 @@ int main(int argc, char const *argv[])
             }
             first = false;
         }
+	#endif
 
         //Allocate entry for use with slist safe call
         slist_data_t* tempVar;
@@ -256,8 +269,11 @@ int main(int argc, char const *argv[])
     
     syslog(LOG_DEBUG, "Caught signal, exiting");
     close(socketDesc);
+
+    #ifndef USE_AESD_CHAR_DEVICE
     close(dataFd);
     remove("/var/tmp/aesdsocketdata");
+    #endif
     closelog();
     timer_delete(timerid);
     free(td);
@@ -273,6 +289,18 @@ void* receiverThread(void* arg)
     int readReturn;
     uint32_t dataSize = (sizeof(dataArray)/sizeof(dataArray[0]));
     memset(dataArray, '0', dataSize);
+
+    int dataFd;
+    #ifdef USE_AESD_CHAR_DEVICE
+    dataFd = open("/dev/aesdchar", O_RDWR | O_APPEND, 0644);
+    if(dataFd == -1)
+    {
+        syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
+        return -1;
+    }
+    params->dataFd = dataFd;
+    #endif
+
     int recvReturn = recv(params->acceptFd, dataArray, dataSize, 0);
 
     if((recvReturn == -1))
@@ -284,6 +312,7 @@ void* receiverThread(void* arg)
         dataArray[recvReturn] = '\0';
     }
 
+    #ifndef USE_AESD_CHAR_DEVICE
     //add mutex
     int mutexResult = pthread_mutex_lock(params->dataMutex);
     if ( mutexResult != 0 ) 
@@ -313,19 +342,119 @@ void* receiverThread(void* arg)
         syslog(LOG_ERR, "pthread_mutex_unlock failed\n");
     }
 
-    int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+        int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
     if(sendReturn == -1)
     {
         syslog(LOG_ERR, "Failed to send data back to client!");
+    } 
+
+    #else
+
+    int writeReturn = write(params->dataFd, dataArray, recvReturn);
+    if(writeReturn == -1)
+    {
+        syslog(LOG_ERR, "Failed to write data to file!");
     }
+    close(params->dataFd);
+
+    dataFd = open("/dev/aesdchar", O_RDONLY, 0644);
+    if(dataFd == -1)
+    {
+        syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
+        return -1;
+    }
+    params->dataFd = dataFd;
+
+    readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
+    if(readReturn < 0)
+    {
+        syslog(LOG_ERR, "Failed to read file!");
+    }
+    else if(readReturn > 0)
+    {
+        int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+        if(sendReturn == -1)
+        {
+            syslog(LOG_ERR, "Failed to send data back to client!");
+        }
+    }
+
+    // //lseek(params->dataFd, 0, SEEK_END);
+    //     int writeReturn = write(params->dataFd, dataArray, recvReturn);
+    //     if(writeReturn == -1)
+    //     {
+    //         syslog(LOG_ERR, "Failed to write data to file!");
+    //     }
+
+    //     close(params->dataFd);
+    // dataFd = open("/dev/aesdchar", O_RDONLY, 0644);
+    // if(dataFd == -1)
+    // {
+    //     syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
+    //     return -1;
+    // }
+    // params->dataFd = dataFd;
+
+    //     //lseek(params->dataFd, 0, SEEK_SET);
+    //     memset(dataArray, '0', sizeof(dataArray));
+
+    //     readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
+    //     while(readReturn > 0){
+    //     if(readReturn == -1)
+    //     {
+    //         syslog(LOG_ERR, "Failed to read file!");
+    //     }
+    //     if(readReturn > 0)
+    //     {
+    //         int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+    //         if(sendReturn == -1)
+    //         {
+    //             syslog(LOG_ERR, "Failed to send data back to client!");
+    //         }
+
+    //     }
+    //                 memset(dataArray, '0', sizeof(dataArray));
+    //                         readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
+    // }
+//         int prevReadReturn = 0;
+//         while((readReturn = read(params->dataFd, &dataArray[prevReadReturn], sizeof(dataArray) - prevReadReturn) > 0))
+//         {
+//             readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
+//             if(readReturn == -1)
+//             {
+//                 syslog(LOG_ERR, "Failed to read file!");
+//                 break;
+//             }
+
+//             for(int i = 0; i < readReturn; i++)
+//             {
+//                 printf("%c\n", dataArray[i]);
+//             }
+//             prevReadReturn += readReturn;
+// if(readReturn != 0)
+// {
+// int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+//     if(sendReturn == -1)
+//     {
+//         syslog(LOG_ERR, "Failed to send data back to client!");
+//         break;
+//     }
+// }
+//          }
+    #endif
+
 
     //TODO: Close connection etc.
     syslog(LOG_DEBUG, "Closed connection from %s", (const char*)params->clientOctet);
     close(params->acceptFd);
+    #ifdef USE_AESD_CHAR_DEVICE
+    close(dataFd);
+    #endif
     free(params);
     return 0;
 }
 
+#ifndef USE_AESD_CHAR_DEVICE
 void timerThread(union sigval sv)
 {
     threadParams *params=(threadParams*)sv.sival_ptr;
@@ -358,3 +487,4 @@ void timerThread(union sigval sv)
         }
     }
 }
+#endif
