@@ -365,12 +365,7 @@ void* receiverThread(void* arg)
     }
     params->dataFd = dataFd;
 
-    readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
-    if(readReturn < 0)
-    {
-        syslog(LOG_ERR, "Failed to read file!");
-    }
-    else if(readReturn > 0)
+    while((readReturn = read(params->dataFd, dataArray, sizeof(dataArray))) > 0)
     {
         int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
         if(sendReturn == -1)
@@ -378,69 +373,11 @@ void* receiverThread(void* arg)
             syslog(LOG_ERR, "Failed to send data back to client!");
         }
     }
-
-    // //lseek(params->dataFd, 0, SEEK_END);
-    //     int writeReturn = write(params->dataFd, dataArray, recvReturn);
-    //     if(writeReturn == -1)
-    //     {
-    //         syslog(LOG_ERR, "Failed to write data to file!");
-    //     }
-
-    //     close(params->dataFd);
-    // dataFd = open("/dev/aesdchar", O_RDONLY, 0644);
-    // if(dataFd == -1)
-    // {
-    //     syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
-    //     return -1;
-    // }
-    // params->dataFd = dataFd;
-
-    //     //lseek(params->dataFd, 0, SEEK_SET);
-    //     memset(dataArray, '0', sizeof(dataArray));
-
-    //     readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
-    //     while(readReturn > 0){
-    //     if(readReturn == -1)
-    //     {
-    //         syslog(LOG_ERR, "Failed to read file!");
-    //     }
-    //     if(readReturn > 0)
-    //     {
-    //         int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
-    //         if(sendReturn == -1)
-    //         {
-    //             syslog(LOG_ERR, "Failed to send data back to client!");
-    //         }
-
-    //     }
-    //                 memset(dataArray, '0', sizeof(dataArray));
-    //                         readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
-    // }
-//         int prevReadReturn = 0;
-//         while((readReturn = read(params->dataFd, &dataArray[prevReadReturn], sizeof(dataArray) - prevReadReturn) > 0))
-//         {
-//             readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
-//             if(readReturn == -1)
-//             {
-//                 syslog(LOG_ERR, "Failed to read file!");
-//                 break;
-//             }
-
-//             for(int i = 0; i < readReturn; i++)
-//             {
-//                 printf("%c\n", dataArray[i]);
-//             }
-//             prevReadReturn += readReturn;
-// if(readReturn != 0)
-// {
-// int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
-//     if(sendReturn == -1)
-//     {
-//         syslog(LOG_ERR, "Failed to send data back to client!");
-//         break;
-//     }
-// }
-//          }
+    
+    if(readReturn < 0)
+    {
+        syslog(LOG_ERR, "Failed to read file!");
+    }
     #endif
 
 
