@@ -10,6 +10,7 @@ else
 endif
 
 EXTRA_CFLAGS += $(DEBFLAGS)
+CROSS_COMPILE ?= aarch64-linux-gnu-
 
 ifneq ($(KERNELRELEASE),)
 # call from kernel build system
@@ -21,7 +22,7 @@ KERNELDIR ?= /lib/modules/$(shell uname -r)/build
 PWD       := $(shell pwd)
 
 modules:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) modules
 
 endif
 
