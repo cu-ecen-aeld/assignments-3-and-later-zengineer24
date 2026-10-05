@@ -3,31 +3,45 @@
 #DEBUG = y
 
 # Add your debugging flag (or not) to CFLAGS
-ifeq ($(DEBUG),y)
-  DEBFLAGS = -O -g -DSCULL_DEBUG # "-O" is needed to expand inlines
-else
-  DEBFLAGS = -O2
-endif
+#ifeq ($(DEBUG),y)
+#  DEBFLAGS = -O -g -DSCULL_DEBUG # "-O" is needed to expand inlines
+#else
+#  DEBFLAGS = -O2
+#endif
 
-EXTRA_CFLAGS += $(DEBFLAGS)
-EXTRA_CFLAGS += -std=gnu99
-CROSS_COMPILE ?= aarch64-linux-gnu-
+#EXTRA_CFLAGS += $(DEBFLAGS)
+#EXTRA_CFLAGS += -std=gnu99
 
-ifneq ($(KERNELRELEASE),)
+#ifneq ($(KERNELRELEASE),)
 # call from kernel build system
-obj-m	:= aesdchar.o
-aesdchar-y := aesd-circular-buffer.o main.o
-else
+#obj-m	:= aesdchar.o
+#aesdchar-y := aesd-circular-buffer.o main.o
+#else
 
-KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-PWD       := $(shell pwd)
+#KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+#PWD       := $(shell pwd)
 
-modules:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) modules
+#modules:
+#	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+
+#modules_install:
+#	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
+
+#clean:
+#	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
+#endif
+
+obj-m := aesdchar.o
+
+SRC := $(shell pwd)
+
+all:
+	$(MAKE) -C $(KERNEL_SRC) M=$(SRC)
 
 modules_install:
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
+	$(MAKE) -C $(KERNEL_SRC) M=$(SRC) modules_install
 
 clean:
-	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
-endif
+	rm -f *.o *~ core .depend .*.cmd *.ko *.mod.c
+	rm -f Module.markers Module.symvers modules.order
+	rm -rf .tmp_versions Modules.symvers
