@@ -10,7 +10,6 @@ else
 endif
 
 EXTRA_CFLAGS += $(DEBFLAGS)
-EXTRA_CFLAGS += -std=gnu99
 CROSS_COMPILE ?= aarch64-linux-gnu-
 
 ifneq ($(KERNELRELEASE),)
@@ -25,8 +24,9 @@ PWD       := $(shell pwd)
 modules:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) CROSS_COMPILE=$(CROSS_COMPILE) modules
 
-endif
+modules_install:
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
 clean:
 	rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions
-
+endif
