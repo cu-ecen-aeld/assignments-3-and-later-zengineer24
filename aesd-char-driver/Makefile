@@ -10,6 +10,7 @@ else
 endif
 
 EXTRA_CFLAGS += $(DEBFLAGS)
+EXTRA_CFLAGS += -std=gnu99
 CROSS_COMPILE ?= aarch64-linux-gnu-
 
 ifneq ($(KERNELRELEASE),)
