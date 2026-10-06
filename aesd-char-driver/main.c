@@ -20,6 +20,7 @@
 #include "aesdchar.h"
 #include "aesd-circular-buffer.h"
 #include <linux/semaphore.h>
+#include <linux/slab.h>
 
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
@@ -33,6 +34,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count, loff_t *f_p
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
 int aesd_init_module(void);
 void aesd_cleanup_module(void);
+void aesd_cleanup_mem(void);
 
 struct aesd_dev aesd_device;
 
@@ -44,7 +46,7 @@ int aesd_open(struct inode *inode, struct file *filp)
      */
     filp->private_data = container_of(inode->i_cdev, struct aesd_dev, cdev);
 
-;    return 0;
+    return 0;
 }
 
 int aesd_release(struct inode *inode, struct file *filp)
@@ -78,7 +80,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
             return retval;
         }
 
-        int unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
+        int unread;
+        unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
         if(unread != 0)
         {
             PDEBUG("Failed to copy all bytes to userspace!\n");
@@ -88,7 +91,7 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
         *f_pos += retval; 
         up(&aesd_device.writeLock);
     }
-        
+
         return retval;
 }
 
@@ -107,6 +110,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     {
         PDEBUG("Unable to allocate mem!\n");
         //Fail and return here
+        aesd_cleanup_mem();
+        unregister_chrdev_region(devno, 1);
         retval = -ENOMEM;
         return retval;
     }
@@ -117,6 +122,8 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
         //Fail and return here
         retval = -ENOMEM;
         kfree(inputBuffer);
+        aesd_cleanup_mem();
+        unregister_chrdev_region(devno, 1);
         return retval;
     }
     PDEBUG("Checking data\n");
@@ -168,7 +175,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             {
                 aesd_device.partialCmd->buffptr = inputBuffer;
                 aesd_device.partialCmd->size = count;
-                up(&aesd_device.writeLock);
+                //up(&aesd_device.writeLock);
                 *f_pos += (count);// * sizeof(char));
                 PDEBUG("Received complete entry\n");
             }
@@ -182,6 +189,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
             retval = aesd_device.partialCmd->size;
             //reset partialCmd size for next cmd once sucessfully written
             aesd_device.partialCmd->size = 0;
+            memset(aesd_device.partialCmd->buffptr,0,sizeof(struct aesd_buffer_entry));
             up(&aesd_device.writeLock);
             PDEBUG("Wrote to circular buffer\n");
             aesd_device.partialCmd->buffptr = NULL;
@@ -235,6 +243,10 @@ int aesd_init_module(void)
     if(aesd_device.devBuffer == NULL)
     {
         PDEBUG("Failed to allocate mem for dev buffer!\n");
+        result = -1;
+        aesd_cleanup_mem();
+        unregister_chrdev_region(devno, 1);
+        return result;
     }
     aesd_circular_buffer_init(aesd_device.devBuffer);
     
@@ -242,11 +254,17 @@ int aesd_init_module(void)
     if(aesd_device.partialCmd == NULL)
     {
         PDEBUG("Faield to allocate mem for partial cmd buffer entry!\n");
+        result = -1;
+        aesd_cleanup_mem();
+        unregister_chrdev_region(devno, 1);
+        return result;
     }
-    //printk(KERN_INFO "Setting up aesd cdev\n");
+    memset(aesd_device.partialCmd, 0, sizeof(struct aesd_buffer_entry));
+    sema_init(&aesd_device.writeLock, 1);
+    
     result = aesd_setup_cdev(&aesd_device);
     
-    sema_init(&aesd_device.writeLock, 1);
+
 
     if( result ) {
         unregister_chrdev_region(dev, 1);
@@ -271,11 +289,22 @@ void aesd_cleanup_module(void)
         kfree(aesd_device.devBuffer->entry[i].buffptr);
     }
     kfree(aesd_device.devBuffer);
+    kfree(aesd_device.partialCmd->buffptr);
     kfree(aesd_device.partialCmd);
     unregister_chrdev_region(devno, 1);
 }
 
-
+void aesd_cleanup_mem(void)
+{
+    struct aesd_buffer_entry* entryPtr;
+    for(int i = 0; i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; i++)
+    {
+        kfree(aesd_device.devBuffer->entry[i].buffptr);
+    }
+    kfree(aesd_device.devBuffer);
+    kfree(aesd_device.partialCmd->buffptr);
+    kfree(aesd_device.partialCmd);
+}
 
 module_init(aesd_init_module);
 module_exit(aesd_cleanup_module);
