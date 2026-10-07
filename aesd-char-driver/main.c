@@ -21,6 +21,7 @@
 #include "aesd-circular-buffer.h"
 #include <linux/semaphore.h>
 #include <linux/slab.h>
+#include <aesd_ioctl.h>
 
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
@@ -32,6 +33,9 @@ int aesd_open(struct inode *inode, struct file *filp);
 int aesd_release(struct inode *inode, struct file *filp);
 ssize_t aesd_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
 ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+loff_t aesd_llseek(struct file *filp, loff_t off, int whence);
+long (*unlocked_ioctl) aesd_ioctl (struct file *filp, unsigned int cmd, unsigned long arg);
+long aesd_ioctl();
 int aesd_init_module(void);
 void aesd_cleanup_module(void);
 void aesd_cleanup_mem(void);
@@ -85,8 +89,8 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
             PDEBUG("Failed to copy all bytes to userspace!\n");
         }
 
+        *f_pos = byteOffset; //(readBuffer->size);
         retval = (readBuffer->size);
-        //*f_pos += retval; 
         up(&aesd_device.writeLock);
     }
     else
@@ -165,7 +169,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
                 PDEBUG("Entering full entry\n");
                 aesd_device.partialCmd->buffptr = inputBuffer;
                 aesd_device.partialCmd->size = count;
-                *f_pos += (count);
+                //*f_pos += (count);
                 PDEBUG("Received complete entry\n");
 
             }
@@ -182,10 +186,126 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     }
     return retval;
 }
+
+loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
+{
+	struct aesd_dev *dev = filp->private_data;
+	loff_t newpos;
+    
+	switch(whence) {
+	  case 0: /* SEEK_SET */
+		//Need to index from current starting entry
+        newpos = dev->devBuffer->entry[dev->devBuffer->out_offs].buffptr + off;
+		break;
+
+	  case 1: /* SEEK_CUR */
+		newpos = filp->f_pos + off;
+		break;
+
+	  case 2: /* SEEK_END */
+		newpos = dev->devBuffer->entry[dev->devBuffer->in_offs].buffptr + dev->devBuffer->entry[dev->devBuffer->in_offs].size + off;
+		break;
+
+	  default: /* can't happen */
+		return -EINVAL;
+	}
+	if (newpos < 0) return -EINVAL;
+	filp->f_pos = newpos;
+	return newpos;
+}
+
+long (*unlocked_ioctl) aesd_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int retval = 0;
+    struct aesd_dev *dev = filp->private_data;
+    int offset = 0;
+    //make sure access is valid and expected cmd
+    if(_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
+    if(_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
+
+    if (_IOC_DIR(cmd) & _IOC_READ)
+        err = !access_ok((void __user *)arg, _IOC_SIZE(cmd));
+	else if (_IOC_DIR(cmd) & _IOC_WRITE)
+		err =  !access_ok((void __user *)arg, _IOC_SIZE(cmd));
+	if (err) return -EFAULT;
+
+    switch (cmd)
+    {
+    case AESDCHAR_IOCSEEKTO:
+        void* seekBuf = kmalloc(sizeof(struct aesd_seekto), GFP_KERNEL);
+        if(seekBuf != NULL)
+        {
+            if(copy_from_user(seekBuf, (const void __user*)arg, sizeof(struct aesd_seekto)))
+            {
+                //Attempt to find cmd offset in valid range. If found, attempt to find data offset, if not, return EINVAL.
+                struct aesd_seekto* seekStruct = (struct aesd_seekto*)(seekBuf);
+                for(int cmdIndex = dev->bufferPtr.out_offs; cmdIndex < (dev->bufferPtr.in_offs % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED); cmdIndex++)
+                {
+                    if(cmdIndex == seekBuf.write_cmd)
+                    {
+                        break;
+                    }
+                    offset += dev->bufferPtr.entry[cmdIndex].size
+                }
+                if(cmdIndex == (dev->bufferPtr.in_offs % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED))
+                {
+                    free(seekBuf);
+                    return -EINVAL;
+                }
+                else
+                {
+                    for(int dataIndex = 0; dataIndex < dev->devBuffer.entry[cmdIndex].size; dataIndex++)
+                    {
+                        if(dataIndex == seekBuf.write_cmd_offset)
+                        {
+                            break;
+                        }
+                        offset++;
+                    }
+                    if(dataIndex == dev->devBuffer.entry[cmdIndex].size)
+                    {
+                        free(seekBuf);
+                        return -EINVAL;
+                    }
+                    int result = down_interruptible(&aesd_device.writeLock);
+                    if(result == 0)
+                    {
+                        aesd_llseek(filp, offset, SEEK_SET);
+                    }
+                    else
+                    {
+                        free(seekBuf);
+                        return -ERESTARTSYS
+                    }
+                    up(&aesd_device.writeLock);
+                    free(seekBuf);
+                }
+            }
+            else
+            {
+                free(seekBuf);
+                return -ENOMEM;
+            }
+        }
+        else
+        {
+            return -ENOMEM;
+        }
+        break;
+    
+    default:
+        return -ENOTTY;
+    }
+
+    return retval;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
+    .llseek =   aesd_llseek,
     .read =     aesd_read,
     .write =    aesd_write,
+    .unlocked_ioctl = aesd_ioctl,
     .open =     aesd_open,
     .release =  aesd_release,
 };
@@ -204,8 +324,6 @@ static int aesd_setup_cdev(struct aesd_dev *dev)
     }
     return err;
 }
-
-
 
 int aesd_init_module(void)
 {

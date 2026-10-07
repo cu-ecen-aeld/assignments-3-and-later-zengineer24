@@ -1,6 +1,7 @@
 #define _GNU_SOURCE 1 // FIRST LINE OF FILE
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <aesd-char-driver/aesd_ioctl.h>
 #include <netdb.h>
 #include <sys/syslog.h>
 #include <unistd.h>
@@ -17,6 +18,7 @@
 #include <pthread.h>
 #include <time.h>
 
+#define IOCTL_CMD_START 19
 int keepRunning = 1;
 
 //args passed to threads
@@ -292,7 +294,7 @@ void* receiverThread(void* arg)
 
     int dataFd;
     #ifdef USE_AESD_CHAR_DEVICE
-    dataFd = open("/dev/aesdchar", O_RDWR | O_APPEND, 0644);
+    dataFd = open("/dev/aesdchar", O_RDWR, 0644);
     if(dataFd == -1)
     {
         syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
@@ -320,14 +322,14 @@ void* receiverThread(void* arg)
         syslog(LOG_ERR, "pthread_mutex_lock failed\n");
     } else 
     {
-        lseek(params->dataFd, 0, SEEK_END);
+        //lseek(params->dataFd, 0, SEEK_END);
         int writeReturn = write(params->dataFd, dataArray, recvReturn);
         if(writeReturn == -1)
         {
             syslog(LOG_ERR, "Failed to write data to file!");
         }
 
-        lseek(params->dataFd, 0, SEEK_SET);
+        //lseek(params->dataFd, 0, SEEK_SET);
         memset(dataArray, '0', sizeof(dataArray));
         readReturn = read(params->dataFd, dataArray, sizeof(dataArray));
         if(readReturn == -1)
@@ -342,29 +344,61 @@ void* receiverThread(void* arg)
         syslog(LOG_ERR, "pthread_mutex_unlock failed\n");
     }
 
-        int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
+    int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
     if(sendReturn == -1)
     {
         syslog(LOG_ERR, "Failed to send data back to client!");
     } 
 
     #else
-
-    int writeReturn = write(params->dataFd, dataArray, recvReturn);
-    if(writeReturn == -1)
+    if(strcmp(dataArray, "AESDCHAR_IOCSEEKTO:", 19) == 0)
     {
-        syslog(LOG_ERR, "Failed to write data to file!");
-    }
-    close(params->dataFd);
+        int index = IOCTL_CMD_START;
+        int xEndIndex = 0;
+        int yArraySize = 0;
+        struct aesd_seekto seekto;
+        while(dataArray[index] != '\0')
+        {
+            if(dataArray[index] == ',')
+            {
+                xEndIndex = index;
+                int xArraySize = index - IOCTL_CMD_START;
+                char xData[xArraySize];
+                for(int i = 0; i < xArraySize; i++)
+                {
+                    xData[i] = dataArray[IOCTL_CMD_START + i];
+                }
+                seekto.write_cmd = atoi(xData);
+            }
+        }
 
-    dataFd = open("/dev/aesdchar", O_RDONLY, 0644);
-    if(dataFd == -1)
+        if(dataArray[index] == '\0')
+        {
+            int yArraySize = index - (xEndIndex + 1);
+            char yData[yArraySize];
+            for(int i = 0; i < yArraySize; i++)
+            {
+                yData[i] = dataArray[(xEndIndex + 1) + i];
+            }
+            seekto.write_cmd_offset = atoi(yData);
+        }
+
+        int ioctl_result = ioctl(params->dataFd,AESDCHAR_IOCSEEKTO,&seekto);
+        if(ioctl_result != 0)
+        {
+            syslog(LOG_ERR, "Failed to execute ioctl_command");
+        }
+        
+    }
+    else
     {
-        syslog(LOG_ERR, "Unable to open file /dev/aesdchar for writing");
-        return -1;
+        int writeReturn = write(params->dataFd, dataArray, recvReturn);
+        if(writeReturn == -1)
+        {
+            syslog(LOG_ERR, "Failed to write data to file!");
+        }
     }
-    params->dataFd = dataFd;
-
+    memset(dataArray, '0', sizeof(dataArray));
     while((readReturn = read(params->dataFd, dataArray, sizeof(dataArray))) > 0)
     {
         int sendReturn = send(params->acceptFd, dataArray, readReturn, 0);
