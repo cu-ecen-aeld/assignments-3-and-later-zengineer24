@@ -1,7 +1,7 @@
 #define _GNU_SOURCE 1 // FIRST LINE OF FILE
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <aesd-char-driver/aesd_ioctl.h>
+#include "../aesd-char-driver/aesd_ioctl.h"
 #include <netdb.h>
 #include <sys/syslog.h>
 #include <unistd.h>
@@ -351,7 +351,7 @@ void* receiverThread(void* arg)
     } 
 
     #else
-    if(strcmp(dataArray, "AESDCHAR_IOCSEEKTO:", 19) == 0)
+    if(strncmp(dataArray, "AESDCHAR_IOCSEEKTO:", 19) == 0)
     {
         int index = IOCTL_CMD_START;
         int xEndIndex = 0;
@@ -374,7 +374,7 @@ void* receiverThread(void* arg)
 
         if(dataArray[index] == '\0')
         {
-            int yArraySize = index - (xEndIndex + 1);
+            yArraySize = index - (xEndIndex + 1);
             char yData[yArraySize];
             for(int i = 0; i < yArraySize; i++)
             {
