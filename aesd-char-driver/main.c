@@ -81,15 +81,15 @@ ssize_t aesd_read(struct file *filp, char __user *buf, size_t count,
             return retval;
         }
 
-
-        unread = copy_to_user(buf, (void*)(readBuffer->buffptr), readBuffer->size);
+        int bytes = readBuffer->size - byteOffset;
+        unread = copy_to_user(buf, (void*)(readBuffer->buffptr + byteOffset), bytes);
         if(unread != 0)
         {
             PDEBUG("Failed to copy all bytes to userspace!\n");
         }
 
-        *f_pos = byteOffset; //(readBuffer->size);
-        retval = (readBuffer->size);
+        *f_pos += bytes;
+        retval = bytes;
         up(&aesd_device.writeLock);
     }
     else
@@ -175,6 +175,10 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
             //Write to circ buffer
             aesd_circular_buffer_add_entry(aesd_device.devBuffer, aesd_device.partialCmd);
+            for(int i = 0; i < aesd_device.partialCmd->size; i++)
+            {
+                printk("%c\n", aesd_device.partialCmd->buffptr[i]);
+            }
             retval = aesd_device.partialCmd->size;
             //reset partialCmd size for next cmd once sucessfully written
             aesd_device.partialCmd->size = 0;
