@@ -219,10 +219,11 @@ loff_t aesd_llseek(struct file *filp, loff_t off, int whence)
 
 long aesd_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
+    printk("Received IOCTL cmd");
     int retval = 0;
     int err = 0;
     struct aesd_dev *dev = filp->private_data;
-    int offset = 0;
+    loff_t offset = 0;
     //make sure access is valid and expected cmd
     if(_IOC_TYPE(cmd) != AESD_IOC_MAGIC) return -ENOTTY;
     if(_IOC_NR(cmd) > AESDCHAR_IOC_MAXNR) return -ENOTTY;
@@ -236,56 +237,55 @@ long aesd_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
     switch (cmd)
     {
     case AESDCHAR_IOCSEEKTO:
+        printk("Received IOCSEEKTO Cmd");
         void* seekBuf = kmalloc(sizeof(struct aesd_seekto), GFP_KERNEL);
         if(seekBuf != NULL)
         {
-            if(copy_from_user(seekBuf, (const void __user*)arg, sizeof(struct aesd_seekto)))
+            if(copy_from_user(seekBuf, (const void __user*)arg, sizeof(struct aesd_seekto)) == 0)
             {
                 //Attempt to find cmd offset in valid range. If found, attempt to find data offset, if not, return EINVAL.
                 struct aesd_seekto* seekStruct = (struct aesd_seekto*)(seekBuf);
-                int cmdIndex = 0;
-                int dataIndex = 0;
-                for(cmdIndex = dev->devBuffer->out_offs; cmdIndex < (dev->devBuffer->in_offs % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED); cmdIndex++)
+                int maxCmd = 0;
+                if(aesd_device.devBuffer->full)
                 {
-                    if(cmdIndex == seekStruct->write_cmd)
-                    {
-                        break;
-                    }
-                    offset += dev->devBuffer->entry[cmdIndex].size;
-                }
-                if(cmdIndex == (dev->devBuffer->in_offs % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED))
-                {
-                    kfree(seekStruct);
-                    return -EINVAL;
+                    maxCmd = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
                 }
                 else
                 {
-                    for(dataIndex = 0; dataIndex < dev->devBuffer->entry[cmdIndex].size; dataIndex++)
-                    {
-                        if(dataIndex == seekStruct->write_cmd_offset)
-                        {
-                            break;
-                        }
-                        offset++;
-                    }
-                    if(dataIndex == dev->devBuffer->entry[cmdIndex].size)
-                    {
-                        kfree(seekStruct);
-                        return -EINVAL;
-                    }
-                    int result = down_interruptible(&aesd_device.writeLock);
-                    if(result == 0)
-                    {
-                        aesd_llseek(filp, offset, SEEK_SET);
-                    }
-                    else
-                    {
-                        kfree(seekStruct);
-                        return -ERESTARTSYS;
-                    }
-                    up(&aesd_device.writeLock);
-                    kfree(seekStruct);
+                    maxCmd = (aesd_device.devBuffer->in_offs - aesd_device.devBuffer->out_offs + AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED;
                 }
+                if(seekStruct->write_cmd % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED >= maxCmd)
+                {
+                    printk("Failed on cmd index");
+                    kfree(seekStruct);
+                    return -EINVAL;
+                }
+                if(seekStruct->write_cmd_offset > dev->devBuffer->entry[seekStruct->write_cmd % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED].size)
+                {
+                    printk("failed on cmd offset");
+                    kfree(seekStruct);
+                    return -EINVAL;
+                }
+
+                for(int cmdIndex = dev->devBuffer->out_offs; cmdIndex < seekStruct->write_cmd % AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED; cmdIndex++)
+                {
+                    offset += dev->devBuffer->entry[cmdIndex].size;
+                }
+
+                offset+= seekStruct->write_cmd_offset;
+                int result = down_interruptible(&aesd_device.writeLock);
+                if(result == 0)
+                {
+                    filp->f_pos = offset;
+                    //aesd_llseek(filp, offset, SEEK_SET);
+                }
+                else
+                {
+                    kfree(seekStruct);
+                    return -ERESTARTSYS;
+                }
+                up(&aesd_device.writeLock);
+                kfree(seekStruct);
             }
             else
             {
@@ -295,6 +295,7 @@ long aesd_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
         }
         else
         {
+            printk("Failed to copy from user");
             return -ENOMEM;
         }
         break;

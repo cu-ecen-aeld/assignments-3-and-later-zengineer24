@@ -353,42 +353,26 @@ void* receiverThread(void* arg)
     #else
     if(strncmp(dataArray, "AESDCHAR_IOCSEEKTO:", 19) == 0)
     {
-        int index = IOCTL_CMD_START;
-        int xEndIndex = 0;
-        int yArraySize = 0;
+        int xIndex = 0;
+        int yIndex = 0;
         struct aesd_seekto seekto;
-        while(dataArray[index] != '\0')
+
+        int result = sscanf(dataArray + IOCTL_CMD_START, "%u,%u", &xIndex, &yIndex);
+        if(result == 2)
         {
-            if(dataArray[index] == ',')
+            seekto.write_cmd = xIndex;
+            seekto.write_cmd_offset = yIndex;
+
+            int ioctl_result = ioctl(params->dataFd,AESDCHAR_IOCSEEKTO,&seekto);
+            if(ioctl_result != 0)
             {
-                xEndIndex = index;
-                int xArraySize = index - IOCTL_CMD_START;
-                char xData[xArraySize];
-                for(int i = 0; i < xArraySize; i++)
-                {
-                    xData[i] = dataArray[IOCTL_CMD_START + i];
-                }
-                seekto.write_cmd = atoi(xData);
+                syslog(LOG_ERR, "Failed to execute ioctl_command");
             }
         }
-
-        if(dataArray[index] == '\0')
+        else
         {
-            yArraySize = index - (xEndIndex + 1);
-            char yData[yArraySize];
-            for(int i = 0; i < yArraySize; i++)
-            {
-                yData[i] = dataArray[(xEndIndex + 1) + i];
-            }
-            seekto.write_cmd_offset = atoi(yData);
-        }
-
-        int ioctl_result = ioctl(params->dataFd,AESDCHAR_IOCSEEKTO,&seekto);
-        if(ioctl_result != 0)
-        {
-            syslog(LOG_ERR, "Failed to execute ioctl_command");
-        }
-        
+            syslog(LOG_ERR, "Improperly formatted ioctl command!");
+        }   
     }
     else
     {
